@@ -1,0 +1,255 @@
+#
+# Tested on lilygo t-eth-elite[H744] + t-eth-elite-lte[H744-02] + t-pcie-a7670e[H543]
+# https://lilygo.cc/products/t-eth-elite-1
+# https://lilygo.cc/products/a-t-pcie?variant=42864265035957
+#
+esphome:
+  name: a7670_example
+  friendly_name: A7670 Example
+
+esp32:
+  board: esp32s3box
+  framework:
+    type: arduino
+
+substitutions:
+  eth_cs_pin: GPIO45
+  eth_clk_pin: GPIO48
+  eth_miso_pin: GPIO47
+  eth_mosi_pin: GPIO21
+  eth_int_pin: GPIO14
+  modem_rx_pin: GPIO04
+  modem_tx_pin: GPIO06
+  modem_dtr_pin: GPIO05
+  modem_pwr_pin: GPIO03
+  modem_ring_pin: GPIO01
+  led_pin: GPIO38
+
+external_components:
+  - source: github://atanasenko/esphome_components
+    components: [a7670]
+
+ota:
+  - platform: esphome
+
+ethernet:
+  type: W5500
+  cs_pin: ${eth_cs_pin}
+  clk_pin: ${eth_clk_pin}
+  miso_pin: ${eth_miso_pin}
+  mosi_pin: ${eth_mosi_pin}
+  interrupt_pin: ${eth_int_pin}
+
+# captive_portal:
+# wifi:
+#   networks:
+#   - ssid: ...
+#     password: ...
+#   ap:
+
+logger:
+  level: DEBUG
+
+debug:
+  update_interval: 5s
+
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: sorting_group_network
+      name: "Network"
+      sorting_weight: 10
+    - id: sorting_group_call
+      name: "Calls"
+      sorting_weight: 20
+    - id: sorting_group_sms
+      name: "Messages"
+      sorting_weight: 30
+    - id: sorting_group_debug
+      name: "Debug"
+      sorting_weight: 40
+
+uart:
+  - id: uart_modem
+    rx_pin: ${modem_rx_pin}
+    tx_pin: ${modem_tx_pin}
+    baud_rate: 115200
+
+a7670:
+  uart_id: uart_modem
+  power_pin: ${modem_pwr_pin}
+  #pin_code: "0000"
+  on_sms_received:
+    then:
+      - lambda: !lambda |-
+          id(sms_sender_text).publish_state(sender);
+          id(sms_message_text).publish_state(message);
+  on_incoming_call:
+    then:
+      - switch.turn_on: led
+      - lambda: !lambda |-
+          id(caller_id_text).publish_state(caller_id);
+  on_call_connected:
+    then:
+      - switch.turn_off: led
+  on_call_disconnected:
+    then:
+      - delay: 1s
+      - switch.turn_off: led
+
+text:
+  - platform: template
+    id: call_recipient_text
+    name: "Call recipient"
+    mode: text
+    optimistic: True
+    restore_value: True
+    web_server:
+      sorting_weight: 200
+      sorting_group_id: sorting_group_call
+
+  - platform: template
+    id: sms_recipient_text
+    name: "Message recipient"
+    mode: text
+    optimistic: True
+    restore_value: True
+    web_server:
+      sorting_weight: 200
+      sorting_group_id: sorting_group_sms
+
+  - platform: template
+    id: sms_send_text
+    name: "Message text"
+    mode: text
+    optimistic: True
+    restore_value: True
+    web_server:
+      sorting_weight: 201
+      sorting_group_id: sorting_group_sms
+
+  - platform: template
+    id: at_send_text
+    name: "AT Command"
+    mode: text
+    optimistic: True
+    restore_value: True
+    web_server:
+      sorting_weight: 301
+      sorting_group_id: sorting_group_debug
+
+text_sensor:
+  - platform: template
+    name: "Last caller"
+    id: caller_id_text
+    web_server:
+      sorting_weight: 100
+      sorting_group_id: sorting_group_call
+
+  - platform: template
+    name: "Last sender"
+    id: sms_sender_text
+    web_server:
+      sorting_weight: 100
+      sorting_group_id: sorting_group_sms
+
+  - platform: template
+    name: "Last message"
+    id: sms_message_text
+    web_server:
+      sorting_weight: 101
+      sorting_group_id: sorting_group_sms
+
+sensor:
+  - platform: a7670
+    rssi:
+      name: "Modem RSSI"
+      web_server:
+        sorting_weight: 100
+        sorting_group_id: sorting_group_network
+
+binary_sensor:
+  - platform: a7670
+    registered:
+      name: "Network registered"
+      web_server:
+        sorting_weight: 101
+        sorting_group_id: sorting_group_network
+
+switch:
+  - platform: gpio
+    id: led
+    pin: ${led_pin}
+
+  # suppresses periodic commands to check network state
+  - platform: template
+    name: "Debug mode"
+    id: at_debug_mode
+    optimistic: True
+    web_server:
+      sorting_weight: 1
+      sorting_group_id: sorting_group_debug
+    on_turn_on:
+      - a7670.debug_on
+    on_turn_off:
+      - a7670.debug_off
+
+button:
+  - platform: template
+    id: dial
+    name: "Dial"
+    web_server:
+      sorting_weight: 202
+      sorting_group_id: sorting_group_call
+    on_press:
+      then:
+        - a7670.dial:
+            recipient: !lambda |-
+              return id(call_recipient_text).state.c_str();
+
+  - platform: template
+    id: call_connect
+    name: "Answer"
+    web_server:
+      sorting_weight: 203
+      sorting_group_id: sorting_group_call
+    on_press:
+      then:
+        - a7670.connect
+
+  - platform: template
+    id: call_disconnect
+    name: "Hangup"
+    web_server:
+      sorting_weight: 204
+      sorting_group_id: sorting_group_call
+    on_press:
+      then:
+        - a7670.disconnect
+
+  - platform: template
+    id: send_sms
+    name: "Send Message"
+    web_server:
+      sorting_weight: 202
+      sorting_group_id: sorting_group_sms
+    on_press:
+      then:
+        - a7670.send_sms:
+            recipient: !lambda |-
+              return id(sms_recipient_text).state.c_str();
+            message: !lambda |-
+              return id(sms_send_text).state.c_str();
+
+  - platform: template
+    id: send_at
+    name: "Send command"
+    web_server:
+      sorting_weight: 302
+      sorting_group_id: sorting_group_debug
+    on_press:
+      then:
+        - a7670.send_at:
+            command: !lambda |-
+              return id(at_send_text).state.c_str();

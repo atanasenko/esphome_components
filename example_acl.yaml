@@ -1,0 +1,137 @@
+#
+# Tested on lilygo t-eth-elite[H744]
+# https://lilygo.cc/products/t-eth-elite-1
+#
+esphome:
+  name: acl_example
+  friendly_name: ACL Example
+
+esp32:
+  board: esp32s3box
+  framework:
+    type: arduino
+
+external_components:
+  - source: github://atanasenko/esphome_components
+    components: [acl, sdmmc]
+
+substitutions:
+  sd_clk_pin: GPIO10
+  sd_cmd_pin: GPIO11
+  sd_data0_pin: GPIO09
+  #sd_data1_pin: GPIO13
+  #sd_data2_pin: GPIO15
+  sd_data3_pin: GPIO12
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Tallinn
+
+sdmmc:
+  id: sd_card
+  mode_1bit: true
+  clk_pin: ${sd_clk_pin}
+  cmd_pin: ${sd_cmd_pin}
+  data0_pin: ${sd_data0_pin}
+
+acl:
+  id: acl1
+  clock_id: ${sntp_time}
+  sdmmc_id: ${sdmmc_id}
+
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: sorting_group_acl
+      name: "ACL"
+      sorting_weight: 1
+
+text:
+  - platform: template
+    id: acl_name_text
+    name: "ACL name"
+    mode: text
+    optimistic: True
+    restore_value: True
+    web_server:
+      sorting_weight: 100
+      sorting_group_id: sorting_group_acl
+
+  - platform: template
+    id: acl_key_text
+    name: "ACL key"
+    mode: text
+    optimistic: True
+    restore_value: True
+    web_server:
+      sorting_weight: 101
+      sorting_group_id: sorting_group_acl
+
+button:
+  - platform: template
+    id: acl_add
+    name: "Add ACL"
+    web_server:
+      sorting_weight: 200
+      sorting_group_id: sorting_group_acl
+    on_press:
+      then:
+        - lambda: !lambda |-
+            id(acl1).add_acl(id(acl_name_text).state, id(acl_key_text).state);
+
+  - platform: template
+    id: acl_remove
+    name: "Remove ACL"
+    web_server:
+      sorting_weight: 201
+      sorting_group_id: sorting_group_acl
+    on_press:
+      then:
+        - lambda: !lambda |-
+            id(acl1).remove_acl(id(acl_name_text).state);
+
+  - platform: template
+    id: acl_clear
+    name: "Clear ACL"
+    web_server:
+      sorting_weight: 202
+      sorting_group_id: sorting_group_acl
+    on_press:
+      then:
+        - lambda: !lambda |-
+            id(acl1).clear_acl();
+
+  - platform: template
+    id: acl_print
+    name: "Print ACL"
+    web_server:
+      sorting_weight: 203
+      sorting_group_id: sorting_group_acl
+    on_press:
+      then:
+        - lambda: !lambda |-
+            id(acl1).print_acl();
+
+  - platform: template
+    id: acl_reload
+    name: "Reload ACL"
+    web_server:
+      sorting_weight: 204
+      sorting_group_id: sorting_group_acl
+    on_press:
+      then:
+        - lambda: !lambda |-
+            id(acl1).reload_acl();
+
+  - platform: template
+    id: acl_check
+    name: "Check ACL"
+    web_server:
+      sorting_weight: 205
+      sorting_group_id: sorting_group_acl
+    on_press:
+      then:
+        - lambda: !lambda |-
+            id(acl1).check(id(acl_key_text).state);
