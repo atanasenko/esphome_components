@@ -62,7 +62,7 @@ optional<AclEntry*> AclComponent::check(const std::string &key) {
   auto res = acl_.find(key);
   if (res == acl_.end()) {
     ESP_LOGI(TAG, "*** [%s] ACL <UNAUTHORIZED>: %s", path_.c_str(), key.c_str());
-    append_log(string_format("<UNAUTHORIZED>: %s", path_.c_str(), key.c_str()));
+    append_log(string_format("<UNAUTHORIZED>: %s", key.c_str()));
     return {};
   }
   ESP_LOGI(TAG, "*** [%s] ACL %s: %s", path_.c_str(), res->second.name.c_str(), key.c_str());

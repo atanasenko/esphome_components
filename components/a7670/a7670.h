@@ -171,7 +171,7 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   bool expect_ack_{false};
   std::string current_cmd_;
   
-  PDU pdu_;
+  PDU pdu_{1024};
   std::string sender_;
   std::string message_;
   std::string recipient_;
