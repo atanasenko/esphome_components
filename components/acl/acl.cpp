@@ -61,11 +61,11 @@ void AclComponent::loop() {
 optional<AclEntry*> AclComponent::check(const std::string &key) {
   auto res = acl_.find(key);
   if (res == acl_.end()) {
-    ESP_LOGI(TAG, "*** [%s] ACL <UNAUTHORIZED>: %s", path_.c_str(), key.c_str());
+    ESP_LOGD(TAG, "[%s] ACL <UNAUTHORIZED>: %s", path_.c_str(), key.c_str());
     append_log(string_format("<UNAUTHORIZED>: %s", key.c_str()));
     return {};
   }
-  ESP_LOGI(TAG, "*** [%s] ACL %s: %s", path_.c_str(), res->second.name.c_str(), key.c_str());
+  ESP_LOGD(TAG, "[%s] ACL %s: %s", path_.c_str(), res->second.name.c_str(), key.c_str());
   append_log(string_format("%s: %s", res->second.name.c_str(), key.c_str()));
   return &res->second;
 }
@@ -79,6 +79,7 @@ void AclComponent::add_acl(const std::string &name, const std::string &key) {
   AclEntry entry(name, key);
   acl_.emplace(key, std::move(entry));
   ESP_LOGI(TAG, "[%s] ACL added name=%s, key=%s", path_.c_str(), name.c_str(), key.c_str());
+  store_acl_();
   reload_acl();
 }
 
