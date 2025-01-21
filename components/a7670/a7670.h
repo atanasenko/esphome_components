@@ -24,11 +24,18 @@ enum BootState {
   BOOT_DONE,
 };
 
+enum ModemType {
+  A76XX,
+  SIM8XX
+};
+
 enum State {
   STATE_IDLE = 0,
   STATE_INIT,
+  STATE_INIT2,
 
   STATE_MODEM_WAIT,
+  STATE_MODEM_DETECT,
   STATE_PIN_WAIT,
   STATE_REG_WAIT,
 
@@ -128,6 +135,7 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   void _list_sms_messages_();
   void _parse_sms_header_(const std::string &message);
   void _parse_sms_message_(const std::string &message);
+  void _handle_sms_message_();
   void _error_out_();
 
   std::string to_hex_(const std::string &data);
@@ -160,20 +168,25 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   bool registration_required_{false};
   bool init_done_{false};
 
+  a7670::ModemType modem_type_{A76XX};
   a7670::State state_{STATE_IDLE};
 
   char read_buffer_[READ_BUFFER_LENGTH];
   size_t read_pos_{0};
+
   uint8_t parse_index_{0};
+  uint8_t parse_stat_{0};
   uint32_t last_tx_{0};
   uint32_t last_rx_{0};
   
   bool expect_ack_{false};
   std::string current_cmd_;
   
-  PDU pdu_{1024};
+  PDU pdu_{16384};
+  int cmcs_;
   std::string sender_;
   std::string message_;
+  std::string whole_message_;
   std::string recipient_;
   std::string outgoing_message_;
   std::string ussd_;

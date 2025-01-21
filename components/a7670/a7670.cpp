@@ -31,6 +31,7 @@ void A7670Component::dump_config() {
   LOG_SENSOR("  ", "Rssi", rssi_sensor_);
 #endif
   LOG_UPDATE_INTERVAL(this);
+  ESP_LOGCONFIG(TAG, "Modem type: %d", modem_type_);
 }
 
 void A7670Component::setup() {
@@ -164,7 +165,7 @@ void A7670Component::loop() {
       if (pin_code_.empty()) {
         ESP_LOGE(TAG, "No pin_code configured");
       } else {
-        ESP_LOGI(TAG, "Entering PIN");
+        ESP_LOGD(TAG, "Entering PIN");
         send_cmd_ack_("AT+CPIN=" + pin_code_, STATE_PIN_WAIT);
       }
     } else if (pin_accepted_) {
@@ -201,7 +202,7 @@ void A7670Component::loop() {
       ESP_LOGW(TAG, "No incoming call in progress");
       return;
     }
-    ESP_LOGI(TAG, "Connecting...");
+    ESP_LOGD(TAG, "Connecting...");
     send_cmd_ack_("ATA", STATE_IDLE);
     return;
   }
@@ -211,7 +212,7 @@ void A7670Component::loop() {
     if (call_state_ == CALL_DISCONNECTED) {
       return;
     }
-    ESP_LOGI(TAG, "Disconnecting...");
+    ESP_LOGD(TAG, "Disconnecting...");
     send_cmd_ack_("AT+CHUP", STATE_IDLE); 
     return;
   }
@@ -252,10 +253,13 @@ void A7670Component::loop() {
   }
 
   if (message_cleanup_pending_) {
-    message_cleanup_pending_ = false;
     // Serial Buffer should have flushed.
     // Send cmd to delete received sms
-    send_cmd_ack_("AT+CMGD=" + std::to_string(parse_index_), STATE_CHECK_SMS1);
+    send_cmd_ack_("AT+CMGD=" + std::to_string(parse_index_), STATE_IDLE);
+    if (--parse_index_ == 0) {
+      message_cleanup_pending_ = false;
+      state_ = STATE_CHECK_SMS1;
+    }
     return;
   }
 
@@ -287,11 +291,11 @@ void A7670Component::parse_cmd_(const std::string &message) {
     bool accepted = (code == "READY");
     if (accepted) {
       if (!pin_code_.empty() && !pin_accepted_) {
-        ESP_LOGI(TAG, "PIN accepted");
+        ESP_LOGD(TAG, "PIN accepted");
       }
     } else {
       if (code == "SIM PIN") {
-        ESP_LOGI(TAG, "PIN required");
+        ESP_LOGD(TAG, "PIN required");
       } else {
         ESP_LOGE(TAG, "Unsupported PIN entry required: %s", code.c_str());
       }
@@ -345,7 +349,7 @@ void A7670Component::parse_cmd_(const std::string &message) {
   }
   
   // new message available
-  if (message.compare(0, 6, "+CMTI:") == 0) {
+  if (message.compare(0, 6, "+CMTI:") == 0 && !debug_) {
     incoming_message_pending_ = true; // read messages asap
     return;
   }
@@ -354,8 +358,8 @@ void A7670Component::parse_cmd_(const std::string &message) {
     // Incoming USSD MESSAGE
     ussd_ = parse_item_(message, 7, 2);
     ussd_ = from_hex_(ussd_);
-    ESP_LOGI(TAG, "Received USSD message:");
-    ESP_LOGI(TAG, ussd_.c_str());
+    ESP_LOGD(TAG, "Received USSD message:");
+    ESP_LOGD(TAG, ussd_.c_str());
     ussd_received_callback_.call(ussd_);
     return;
   }
@@ -372,13 +376,13 @@ void A7670Component::parse_cmd_(const std::string &message) {
       ESP_LOGD(TAG, "Call state is now: %d", new_call_state);
       call_state_ = new_call_state;
       if (new_call_state == CALL_INCOMING) {
-        ESP_LOGI(TAG, "Incoming call from %s", caller_id.c_str());
+        ESP_LOGD(TAG, "Incoming call from %s", caller_id.c_str());
         incoming_call_callback_.call(caller_id);
       } else if (new_call_state == CALL_ACTIVE) {
-        ESP_LOGI(TAG, "Call connected");
+        ESP_LOGD(TAG, "Call connected");
         call_connected_callback_.call();
       } else if (new_call_state == CALL_DISCONNECTED) {
-        ESP_LOGI(TAG, "Call disconnected");
+        ESP_LOGD(TAG, "Call disconnected");
         call_disconnected_callback_.call();
       }
     }
@@ -407,13 +411,13 @@ void A7670Component::parse_cmd_(const std::string &message) {
     expect_ack_ = false;
     
     if (message == "ERROR") {
-      ESP_LOGW(TAG, cmd.c_str());
+      ESP_LOGW(TAG, "Received ERROR from command %s", cmd.c_str());
       state_ = STATE_IDLE;
       return;
     }
 
     if (message.compare(0, 11, "+CME ERROR:") == 0) {
-      ESP_LOGE(TAG, message.substr(12, message.length() - 12).c_str());
+      ESP_LOGE(TAG, "Received CME ERROR from command %s: %s", cmd.c_str(), message.substr(12, message.length() - 12).c_str());
       //state_ = STATE_IDLE;
       return;
     }
@@ -436,10 +440,25 @@ void A7670Component::parse_cmd_(const std::string &message) {
       // these are handled separately in loop()
       break;
 
+    case STATE_MODEM_DETECT:
+      // A7670E-LASE
+      // SIMCOM_SIM868
+      if (message.compare(0, 13, "SIMCOM_SIM868") == 0) {
+        ESP_LOGD(TAG, "SIM8XX modem detected");
+        modem_type_ = SIM8XX;
+      }
+      expect_ack_ = true;
+      state_ = STATE_INIT2;
+      break;
+
     case STATE_INIT:
       init_done_ = true;
+      send_cmd_("AT+CGMM", STATE_MODEM_DETECT);
+      break;
+    case STATE_INIT2:
       send_cmd_ack_("AT+CPIN?", STATE_PIN_WAIT);
       break;
+
     case STATE_CSQ:
       _check_csq_();
       break;
@@ -455,7 +474,7 @@ void A7670Component::parse_cmd_(const std::string &message) {
       break;
     case STATE_DIALING2:
       if (ok) {
-        ESP_LOGI(TAG, "Dialing: '%s'", recipient_.c_str());
+        ESP_LOGD(TAG, "Dialing: '%s'", recipient_.c_str());
         state_ = STATE_IDLE;
       } else {
         _error_out_();
@@ -469,28 +488,29 @@ void A7670Component::parse_cmd_(const std::string &message) {
       _list_sms_messages_();
       break;
     case STATE_PARSE_SMS_RESPONSE:
-      if (message.compare(0, 6, "+CMGL:") == 0 && parse_index_ == 0) {
+      if (message.compare(0, 6, "+CMGL:") == 0) {
         _parse_sms_header_(message);
-      }
-      // Otherwise we receive another OK
-      if (ok) {
+        state_ = STATE_RECEIVE_SMS;
+      } else if (ok) {
+        // Otherwise we receive another OK
         send_cmd_ack_("AT+CLCC", STATE_IDLE);
       }
       break;
-    case STATE_RECEIVE_SMS:
-      /* Our recipient is set and the message body is in message
-        kick ESPHome callback now
-      */
-      if (ok || message.compare(0, 6, "+CMGL:") == 0) {
-        ESP_LOGI(TAG, "Received SMS from: %s", sender_.c_str());
-        ESP_LOGI(TAG, "%s", message_.c_str());
-        sms_received_callback_.call(message_, sender_);
+    case STATE_RECEIVE_SMS: {
+      if (message.compare(0, 6, "+CMGL:") == 0) {
+        _parse_sms_header_(message);
+      } else if (ok) {
+        _handle_sms_message_();
         message_cleanup_pending_ = true;
         state_ = STATE_IDLE;
       } else {
-        _parse_sms_message_(message);
+        // actual message body
+        if (parse_stat_ == 0) { // only unread messages
+          _parse_sms_message_(message);
+        }
       }
       break;
+    }
     case STATE_SENDING_SMS:
       _send_sms_get_csca_();
       break;
@@ -526,7 +546,7 @@ void A7670Component::parse_cmd_(const std::string &message) {
     case STATE_SEND_USSD3:
       if (ok) {
         // Dialing
-        ESP_LOGI(TAG, "Sending ussd code: %s", ussd_.c_str());
+        ESP_LOGD(TAG, "Sending ussd code: %s", ussd_.c_str());
         state_ = STATE_IDLE;
       } else {
         _error_out_();
@@ -578,6 +598,9 @@ void A7670Component::_send_sms_send_header_() {
     return;
   }
   send_cmd_("AT+CMGS=" + std::to_string(encode_result), STATE_SENDING_SMS_4);
+  if (modem_type_ == SIM8XX) {
+    _send_sms_send_body_("> ");
+  }
 }
 
 void A7670Component::_send_sms_send_body_(const std::string &message) {
@@ -598,17 +621,32 @@ void A7670Component::_list_sms_messages_() {
 
 void A7670Component::_parse_sms_header_(const std::string &message) {
   parse_index_ = parse_number<uint8_t>(parse_item_(message, 7, 1)).value_or(0);
-  state_ = STATE_RECEIVE_SMS;
+  parse_stat_ = parse_number<uint8_t>(parse_item_(message, 7, 2)).value_or(0);
 }
 
 void A7670Component::_parse_sms_message_(const std::string &message) {
   pdu_.decodePDU(message.c_str());
   int* concat = pdu_.getConcatInfo();
-  ESP_LOGD(TAG, "SMS concat: CSMS=%d, part %d of %d", concat[0], concat[1], concat[2]);
+  ESP_LOGD(TAG, "SMS concat: CMCS=%d, part %d of %d", concat[0], concat[1], concat[2]);
+  if (cmcs_ == 0 || cmcs_ != concat[0]) {
+    // handle any previously cached message, if it existed
+    _handle_sms_message_();
+  }
+  cmcs_ = concat[0];
   sender_ = pdu_.getSender();
-  message_ = pdu_.getText();
+  message_ += pdu_.getText();
 }
 
+void A7670Component::_handle_sms_message_() {
+  if (message_.length() > 0) {
+    ESP_LOGD(TAG, "Received SMS from: %s", sender_.c_str());
+    ESP_LOGD(TAG, "%s", message_.c_str());
+    sms_received_callback_.call(message_, sender_);
+  }
+  message_ = "";
+  sender_ = "";
+  cmcs_ = 0;
+}
 
 void A7670Component::_error_out_() {
   set_registered_(false);
@@ -647,13 +685,13 @@ void A7670Component::send_sms(const std::string &recipient, const std::string &m
 }
 
 void A7670Component::send_ussd(const std::string &ussd_code) {
-  ESP_LOGI(TAG, "Sending USSD code: %s", ussd_code.c_str());
+  ESP_LOGD(TAG, "Sending USSD code: %s", ussd_code.c_str());
   ussd_ = ussd_code;
   send_ussd_pending_ = true;
 }
 
 void A7670Component::send_at(const std::string &command) {
-  ESP_LOGI(TAG, "Sending AT command: %s", command.c_str());
+  ESP_LOGD(TAG, "Sending AT command: %s", command.c_str());
   at_ = command;
   send_at_pending_ = true;
 }
