@@ -81,7 +81,7 @@ esp_err_t AclServer::handle_post(httpd_req_t *r) {
 
   AclServer *server = static_cast<AclServer *>(r->user_ctx);
   if (url == "/" + server->path_ + "/acl.json") {
-    return server->acl_post(r, post_body);
+    return server->acl_post(r, std::move(post_body));
   }
   httpd_resp_set_status(r, HTTPD_404);
   httpd_resp_send(r, "Not found", HTTPD_RESP_USE_STRLEN);
@@ -117,12 +117,13 @@ esp_err_t AclServer::acl_get(httpd_req_t *r) {
   return ESP_OK;
 }
 
-esp_err_t AclServer::acl_post(httpd_req_t *r, const std::string &post_body) {
+esp_err_t AclServer::acl_post(httpd_req_t *r, std::string&& post_body) {
   store_->store_acl_content(post_body);
-  reload_();
+  post_body = "";
   httpd_resp_set_hdr(r, "Connection", "close");
   httpd_resp_set_status(r, HTTPD_200);
   httpd_resp_send(r, "OK", HTTPD_RESP_USE_STRLEN);
+  reload_();
   return ESP_OK;
 }
 

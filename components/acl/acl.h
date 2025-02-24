@@ -63,7 +63,7 @@ class AclComponent : public Component /*, public AsyncWebHandler*/ {
     bool reload_required_{false};
     std::vector<LogEntry> pending_logs_;
 
-    void load_acl_();
+    bool load_acl_();
     void store_acl_();
     void store_logs_();
     std::string timestamp_();

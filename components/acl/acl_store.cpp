@@ -8,7 +8,7 @@ namespace acl {
 
   static const char *const TAG = "acl_store";
 
-  std::list<AclEntry> AclStore::load_acl() {
+  optional<std::list<AclEntry>> AclStore::load_acl() {
     std::list<AclEntry> data;
     if (sdfs_ == nullptr) {
       return data;
@@ -18,7 +18,7 @@ namespace acl {
     std::list<AclEntry>* d = &data;
     optional<std::string> contents = load_acl_content();
     if (contents.has_value()) {
-        json::parse_json(contents.value(), [d](JsonObject root) -> bool {
+        if(!json::parse_json(contents.value(), [d](JsonObject root) -> bool {
           for (auto const& item: root) {
             std::string name = item.key().c_str();
             JsonObject obj = item.value().as<JsonObject>();
@@ -26,7 +26,9 @@ namespace acl {
             d->emplace_back(std::move(entry));
           }
           return true;
-        });
+        })) {
+          return {};
+        };
     }
     return data;
   }

@@ -28,7 +28,7 @@ class AclServer {
 
     esp_err_t logs_get(httpd_req_t *r, const std::string &logfile);
     esp_err_t acl_get(httpd_req_t *r);
-    esp_err_t acl_post(httpd_req_t *r, const std::string &post_body);
+    esp_err_t acl_post(httpd_req_t *r, std::string&& post_body);
 
     static esp_err_t handle_get(httpd_req_t *r);
     static esp_err_t handle_post(httpd_req_t *r);

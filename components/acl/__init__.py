@@ -40,6 +40,8 @@ async def to_code(config):
     # increase max sockets from default 10 to 16 (16 is the actual max)
     if CORE.is_esp32 and CORE.using_esp_idf:
         add_idf_sdkconfig_option("CONFIG_LWIP_MAX_SOCKETS", 16)
+        add_idf_sdkconfig_option("CONFIG_HTTPD_MAX_REQ_HDR_LEN", 8192)
+        add_idf_sdkconfig_option("CONFIG_HTTPD_MAX_URI_LEN", 2048)
     
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

@@ -48,7 +48,13 @@ void AclComponent::loop() {
   }
   if (reload_required_) {
     reload_required_ = false;
-    load_acl_();
+    if (!load_acl_()) {
+      // try again later
+      set_timeout(5000, [this]() -> void {
+        ESP_LOGI(TAG, "[%s] Retrying reload");
+        this->reload_acl();
+      });
+    }
     return;
   }
   if (!pending_logs_.empty()) {
@@ -119,13 +125,19 @@ void AclComponent::reload_acl() {
   reload_required_ = true;
 }
 
-void AclComponent::load_acl_() {
-  auto part_data = store_.load_acl();
+bool AclComponent::load_acl_() {
+  auto acl_data = store_.load_acl();
+  if (!acl_data.has_value()) {
+    ESP_LOGW(TAG, "[%s] Unable to load ACL from acl.json");
+    return false;
+  }
+
   ESP_LOGI(TAG, "[%s] Reloaded ACL from acl.json", path_.c_str());
   acl_.clear();
-  for (auto const& entry: part_data) {
+  for (auto const& entry: acl_data.value()) {
     acl_.emplace(entry.key, entry);
   }
+  return true;
 }
 
 void AclComponent::store_acl_() {

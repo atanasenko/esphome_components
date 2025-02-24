@@ -32,7 +32,7 @@ class AclStore {
     void set_sdfs(sdmmc::SdFs *sdfs) { sdfs_ = sdfs; }
     void set_path(const std::string &path) { path_ = path; }
 
-    std::list<AclEntry> load_acl();
+    optional<std::list<AclEntry>> load_acl();
     
     void store_acl(const std::list<AclEntry> &data);
 
