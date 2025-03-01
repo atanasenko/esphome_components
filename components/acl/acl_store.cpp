@@ -1,6 +1,4 @@
 #include "acl_store.h"
-
-#include "esphome/components/json/json_util.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -13,37 +11,52 @@ namespace acl {
     if (sdfs_ == nullptr) {
       return data;
     }
-
-    //ESP_LOGI(TAG, "Loading /acl.json");
-    std::list<AclEntry>* d = &data;
     optional<std::string> contents = load_acl_content();
     if (contents.has_value()) {
-        if(!json::parse_json(contents.value(), [d](JsonObject root) -> bool {
-          for (auto const& item: root) {
-            std::string name = item.key().c_str();
-            JsonObject obj = item.value().as<JsonObject>();
-            AclEntry entry(name, obj["key"].as<const char*>());
-            d->emplace_back(std::move(entry));
-          }
-          return true;
-        })) {
-          return {};
-        };
+      if (!load_acl_from_string_(contents.value(), data)) {
+        return {};
+      }
     }
     return data;
+  }
+  
+  bool AclStore::load_acl_from_string_(const std::string &str, std::list<AclEntry> &data) {
+    std::size_t pos = 0;
+    std::size_t res;
+    while ((res = str.find("\n", pos)) != std::string::npos) {
+      if (!load_acl_entry_(str.substr(pos, res - pos), data)) {
+        return false;
+      }
+      pos = res + 1;
+    }
+    if (pos < str.length()) {
+      return load_acl_entry_(str.substr(pos, str.length() - pos), data);
+    }
+    return true;
+  }
+  
+  bool AclStore::load_acl_entry_(const std::string &str, std::list<AclEntry> &data) {
+    // TODO perform format checks and return false if invalid
+
+    std::size_t sep = str.find(",");
+    std::string name = str.substr(0, sep);
+    std::string key = str.substr(sep+1, str.length());
+    AclEntry entry(name, key);
+    data.emplace_back(std::move(entry));
+    return true;
   }
 
   void AclStore::store_acl(const std::list<AclEntry> &data) {
     if (sdfs_ == nullptr) {
       return;
     }
-
-    std::string res = json::build_json([data](JsonObject root) -> void {
-      for (auto const& entry: data) {
-        auto map = root[entry.name.c_str()];
-        map["key"] = entry.key.c_str();
-      }
-    });
+    std::string res;
+    for (auto const& entry: data) {
+      res += entry.name.c_str();
+      res += ",";
+      res += entry.key.c_str();
+      res += "\n";
+    }
     store_acl_content(res);
   }
 
@@ -88,7 +101,7 @@ namespace acl {
     if (sdfs_ == nullptr) {
       return {};
     }
-    return sdfs_->read_file_string("/" + path_ + "/acl.json");
+    return sdfs_->read_file_string("/" + path_ + "/acl.csv");
   }
 
   void AclStore::store_acl_content(const std::string &data) {
@@ -96,12 +109,12 @@ namespace acl {
       return;
     }
 
-    //ESP_LOGI(TAG, "Saving /acl.json");
+    //ESP_LOGI(TAG, "Saving /acl.csv");
     if (!sdfs_->exists("/" + path_)) {
       sdfs_->create_dir("/" + path_);
     }
-    if (!sdfs_->write_file("/" + path_ + "/acl.json", data)) {
-      ESP_LOGE(TAG, "Error saving acl.json file");
+    if (!sdfs_->write_file("/" + path_ + "/acl.csv", data)) {
+      ESP_LOGE(TAG, "Error saving acl.csv file");
     }
   }
 

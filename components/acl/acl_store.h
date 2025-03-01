@@ -48,6 +48,8 @@ class AclStore {
     sdmmc::SdFs *sdfs_;
     std::string path_;
     optional<std::string> find_latest_log_();
+    bool load_acl_from_string_(const std::string &str, std::list<AclEntry> &data);
+    bool load_acl_entry_(const std::string &str, std::list<AclEntry> &data);
 };
 
 }  // namespace acl

@@ -16,6 +16,8 @@
 namespace esphome {
 namespace acl {
 
+static const uint16_t MAX_RELOAD_RETRIES = 3;
+
 class AclComponent : public Component /*, public AsyncWebHandler*/ {
   public:
     void set_clock(time::RealTimeClock *clock) { clock_ = clock; }
@@ -61,6 +63,7 @@ class AclComponent : public Component /*, public AsyncWebHandler*/ {
     bool server_started_{false};
     bool store_required_{false};
     bool reload_required_{false};
+    uint16_t reload_retries_{0};
     std::vector<LogEntry> pending_logs_;
 
     bool load_acl_();

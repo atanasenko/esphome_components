@@ -1,5 +1,4 @@
 #include "acl_server.h"
-
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -46,7 +45,7 @@ esp_err_t AclServer::handle_get(httpd_req_t *r) {
   std::string url = r->uri;
 
   AclServer *server = static_cast<AclServer *>(r->user_ctx);
-  if (url == "/" + server->path_ + "/acl.json") {
+  if (url == "/" + server->path_ + "/acl.csv") {
     return server->acl_get(r);
   } else if(url.compare(0, 7 + server->path_.length(), "/" + server->path_ + "/logs/") == 0 && url.compare(url.length() - 4, url.length(), ".log") == 0) {
     std::string logfile = url.substr(7 + server->path_.length(), url.length() - 4 - 7 - server->path_.length());
@@ -80,7 +79,7 @@ esp_err_t AclServer::handle_post(httpd_req_t *r) {
   ESP_LOGI(TAG, "Received %d bytes", post_body.length());
 
   AclServer *server = static_cast<AclServer *>(r->user_ctx);
-  if (url == "/" + server->path_ + "/acl.json") {
+  if (url == "/" + server->path_ + "/acl.csv") {
     return server->acl_post(r, std::move(post_body));
   }
   httpd_resp_set_status(r, HTTPD_404);
@@ -96,6 +95,10 @@ esp_err_t AclServer::logs_get(httpd_req_t *r, const std::string &logfile) {
     return ESP_OK;
   }
   httpd_resp_set_hdr(r, "Content-Type", "text/plain");
+  httpd_resp_set_hdr(r, "CDN-Cache-Control", "no-store");
+  httpd_resp_set_hdr(r, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(r, "Pragma", "no-cache");
+  httpd_resp_set_hdr(r, "Expires", "0");
   httpd_resp_set_hdr(r, "Connection", "close");
   httpd_resp_set_status(r, HTTPD_200);
   httpd_resp_send(r, res.value().c_str(), HTTPD_RESP_USE_STRLEN);
@@ -110,7 +113,11 @@ esp_err_t AclServer::acl_get(httpd_req_t *r) {
     return ESP_OK;
   }
 
-  httpd_resp_set_hdr(r, "Content-Type", "application/json");
+  httpd_resp_set_hdr(r, "Content-Type", "text/plain");
+  httpd_resp_set_hdr(r, "CDN-Cache-Control", "no-store");
+  httpd_resp_set_hdr(r, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(r, "Pragma", "no-cache");
+  httpd_resp_set_hdr(r, "Expires", "0");
   httpd_resp_set_hdr(r, "Connection", "close");
   httpd_resp_set_status(r, HTTPD_200);
   httpd_resp_send(r, res.value().c_str(), HTTPD_RESP_USE_STRLEN);

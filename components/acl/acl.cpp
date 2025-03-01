@@ -50,10 +50,12 @@ void AclComponent::loop() {
     reload_required_ = false;
     if (!load_acl_()) {
       // try again later
-      set_timeout(5000, [this]() -> void {
-        ESP_LOGI(TAG, "[%s] Retrying reload");
-        this->reload_acl();
-      });
+      if (++reload_retries_ < MAX_RELOAD_RETRIES) {
+        set_timeout(5000, [this]() -> void {
+          ESP_LOGI(TAG, "[%s] Retrying reload", path_.c_str());
+          reload_required_ = true;
+        });
+      }
     }
     return;
   }
@@ -94,6 +96,7 @@ void AclComponent::remove_acl(const std::string &name) {
     if(it->second.name == name) {
       ESP_LOGI(TAG, "[%s] ACL removed name=%s, key=%s", path_.c_str(), it->second.name.c_str(), it->second.key.c_str());
       it = acl_.erase(it);
+      store_acl_();
       reload_acl();
     } else {
       ++it;
@@ -105,6 +108,7 @@ void AclComponent::clear_acl() {
   if (!acl_.empty()) {
     acl_.clear();
     ESP_LOGI(TAG, "[%s] ACL cleared", path_.c_str());
+    store_acl_();
     reload_acl();
   }
 }
@@ -123,16 +127,17 @@ void AclComponent::print_acl() {
 
 void AclComponent::reload_acl() {
   reload_required_ = true;
+  reload_retries_ = 0;
 }
 
 bool AclComponent::load_acl_() {
   auto acl_data = store_.load_acl();
   if (!acl_data.has_value()) {
-    ESP_LOGW(TAG, "[%s] Unable to load ACL from acl.json");
+    ESP_LOGW(TAG, "[%s] Unable to load ACL from acl.csv", path_.c_str());
     return false;
   }
 
-  ESP_LOGI(TAG, "[%s] Reloaded ACL from acl.json", path_.c_str());
+  ESP_LOGI(TAG, "[%s] Reloaded ACL from acl.csv with %d entries", path_.c_str(), acl_data.value().size());
   acl_.clear();
   for (auto const& entry: acl_data.value()) {
     acl_.emplace(entry.key, entry);
