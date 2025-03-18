@@ -90,21 +90,30 @@ bool PDU::setAddress(const char *address, /*eAddressType at,*/ eLengthType lt, c
     addressLength = strlen(address);
     if (addressLength < MAX_NUMBER_LENGTH)
     {
-      if (lt == NIBBLES)
-        buffer[smsOffset++] = addressLength;
-      else
-        buffer[smsOffset++] = ((addressLength + 1) / 2) + 1; // add 1 for length
+      if (buffer != nullptr) {
+        if (lt == NIBBLES)
+          buffer[smsOffset] = addressLength;
+        else
+          buffer[smsOffset] = ((addressLength + 1) / 2) + 1; // add 1 for length
+      }
+      smsOffset++;
       switch (at)
       {
         case INTERNATIONAL_NUMERIC:
-          buffer[smsOffset++] = INTERNATIONAL_NUMBER;
-          stringToBCD(address, &buffer[smsOffset]);
+          if (buffer != nullptr)
+            buffer[smsOffset] = INTERNATIONAL_NUMBER;
+          smsOffset++;
+          if (buffer != nullptr)
+            stringToBCD(address, &buffer[smsOffset]);
           smsOffset += (strlen(address) + 1) / 2;
           rc = true;
           break;
         case NATIONAL_NUMERIC:
-          buffer[smsOffset++] = NATIONAL_NUMBER;
-          stringToBCD(address, &buffer[smsOffset]);
+          if (buffer != nullptr)
+            buffer[smsOffset] = NATIONAL_NUMBER;
+          smsOffset++;
+          if (buffer != nullptr)
+            stringToBCD(address, &buffer[smsOffset]);
           smsOffset += (strlen(address) + 1) / 2;
           rc = true;
           break;
@@ -176,9 +185,8 @@ void PDU::digitSwap(const char *number, char *pdu)
     message is too long
     Return GSM7_TOO_LONG is message is longer than MAX_SMS_LENGTH_7BIT
 */
-int PDU::convert_utf8_to_gsm7bit(const char *message, char *gsm7bit, int udhsize, int bufferSize)
+int PDU::convert_utf8_to_gsm7bit(const char *message, char *gsm7bit, int *consumed, int udhsize, int bufferSize)
 {
-
   int w = 0;
 
   while (*message)
@@ -229,13 +237,14 @@ int PDU::convert_utf8_to_gsm7bit(const char *message, char *gsm7bit, int udhsize
     }
     message += length; // bump to next character
     // check not exceeding max 160 characters for GSM7
-  //  if (w > bufferSize - udhsize)
-    //  break;
-    if (w > MAX_SMS_LENGTH_7BIT)
+    if (w > bufferSize - udhsize)
       break;
+    // if (w > MAX_SMS_LENGTH_7BIT)
+    //   break;
+    (*consumed) += length;
   }
-//  return w > (bufferSize - udhsize) ? WORK_BUFFER_TOO_SMALL : w;
-  return w > MAX_SMS_LENGTH_7BIT ? GSM7_TOO_LONG : w;
+  return w > (bufferSize - udhsize) ? GSM7_TOO_LONG : w;
+  // return w > MAX_SMS_LENGTH_7BIT ? GSM7_TOO_LONG : w;
 }
 /*
     UTF8 string may contain characters that need to be changed from 8 bit ISO-8859
@@ -245,7 +254,7 @@ int PDU::convert_utf8_to_gsm7bit(const char *message, char *gsm7bit, int udhsize
 
     Return GSM7_TOO_LONG is the message is longer than MAX_SMS_LENGTH_7BIT
 */
-int PDU::utf8_to_packed7bit(const char *utf8, char *pdu, int *septets, int udhsize, int bufferSize)
+int PDU::utf8_to_packed7bit(const char *utf8, char *pdu, int *septets, int *consumed, int udhsize, int bufferSize)
 {
   int r;
   int w;
@@ -253,7 +262,7 @@ int PDU::utf8_to_packed7bit(const char *utf8, char *pdu, int *septets, int udhsi
   char gsm7bit[MAX_SMS_LENGTH_7BIT + 2]; // allow for overflow
 
   /* Start by converting the UTF8-string to a GSM7 string */
-  len7bit = convert_utf8_to_gsm7bit(utf8, gsm7bit, udhsize, bufferSize);
+  len7bit = convert_utf8_to_gsm7bit(utf8, gsm7bit, consumed, udhsize, bufferSize);
   // check if workbuffer exceeded
   if (len7bit < 0)
     return len7bit;
@@ -263,7 +272,9 @@ int PDU::utf8_to_packed7bit(const char *utf8, char *pdu, int *septets, int udhsi
   w = 0;
   while (r < len7bit)
   {
-    pdu[w] = ((gsm7bit[r] >> (w % 7)) & 0x7F) | ((gsm7bit[r + 1] << (7 - (w % 7))) & 0xFF);
+    if (pdu != nullptr) {
+      pdu[w] = ((gsm7bit[r] >> (w % 7)) & 0x7F) | ((gsm7bit[r + 1] << (7 - (w % 7))) & 0xFF);
+    }
     if ((w % 7) == 6)
       r++;
     r++;
@@ -303,10 +314,103 @@ int PDU::buildUDH(unsigned short csms, unsigned numparts, unsigned partnumber)
   return offset;
 }
 
+int PDU::checkMultipart(const char *recipient, const char *message, int messageIdx, bool *msg16Bit) {
+  int consumed = 0;
+  if (messageIdx == 0) {
+    int sz = doCheckMultipart(recipient, message, messageIdx, &consumed, msg16Bit, false);
+    if (sz > 0) {
+      return -1;
+    }
+  }
+  consumed = 0;
+  int sz = doCheckMultipart(recipient, message, messageIdx, &consumed, msg16Bit, true);
+  if(sz > 0) {
+    return -1;
+  }
+  return consumed;
+}
+
+int PDU::doCheckMultipart(const char *recipient, const char *message, int messageIdx, int *consumed, bool *msg16Bit, bool forceMultipart) {
+  enum eDCS dcs = ALPHABET_7BIT;
+  int length = -1;
+  int delta = -1;
+  smsOffset = 0;
+  int beginning = 0;
+  bool gsm7bit = true;
+  const char *savem = message;
+  
+  while (*message && gsm7bit)
+  {
+    unsigned short ucs2[2], target; // allow for surrogate pair
+    int length = utf8Length(message);
+    utf8_to_ucs2_single(message, ucs2); // translate to a single ucs2
+    // ucs2 is bigendian, swap to little endian
+    target = (ucs2[0] << 8) | ((ucs2[0] & 0xff00) >> 8);
+    gsm7bit = isGSM7(&target);
+    message += length; // bump to next
+  }
+  if (!gsm7bit) {
+    dcs = ALPHABET_16BIT;
+    *msg16Bit = true;
+  }
+  savem += messageIdx; // use only remaining bytes
+
+  if (!setAddress(scabuffout, OCTETS, nullptr)) // set SCSA address
+    return ADDRESS_FORMAT; // bail out now
+
+  beginning = smsOffset;
+  smsOffset++; // pdutype;
+  smsOffset++; // message reference
+
+  if (!setAddress(recipient, NIBBLES, nullptr))
+    return ADDRESS_FORMAT;
+
+    smsOffset++; // PID
+
+  int udhsize = forceMultipart ? 7 : 0;
+  int septetcount = 0;
+  switch (dcs)
+  {
+  case ALPHABET_8BIT:
+    delta = ALPHABET_8BIT_NOT_SUPPORTED; // not handled yet, cause failure
+    break;
+  case ALPHABET_7BIT:
+    smsOffset++; // DCS_7BIT_ALPHABET_MASK;
+    smsOffset++; // placeholder for length in septets
+    // insert UDH if any
+    smsOffset += udhsize;
+    delta = utf8_to_packed7bit(savem, nullptr, &septetcount, consumed, udhsize == 0 ? 0 : 8, /*generalWorkBuffLength - smsOffset*/ /*MAX_NUMBER_OCTETS*/ MAX_SMS_LENGTH_7BIT);
+    if (delta < 0) {
+      overFlow = delta == WORK_BUFFER_TOO_SMALL;
+//      return delta;
+    }
+    else {
+      length = smsOffset + delta + 1;             // allow for length byte
+    }
+    break;
+  case ALPHABET_16BIT:
+    smsOffset++; // DCS_16BIT_ALPHABET_MASK;
+    smsOffset++; // placeholder for length in octets
+    // insert UDH if any
+    smsOffset += udhsize;
+    delta = utf8_to_ucs2(savem, nullptr, consumed, udhsize);
+    if (delta > 0) {
+      length = smsOffset + delta;                        // allow for length byte
+    }
+    break;
+  default:
+    break;
+  }
+  // sanity check
+  if (delta < 0)
+    return delta;
+
+  return length - beginning;
+}
 /* creates an buffer in SMS SUBMIT format and returns length, < 0 if invalid in anyway
     https://bluesecblog.wordpress.com/2016/11/16/sms-submit-tpdu-structure/
 */
-int PDU::encodePDU(const char *recipient, const char *message, unsigned short csms, unsigned char numparts, unsigned char partnumber)
+int PDU::encodePDU(const char *recipient, const char *message, unsigned short csms, unsigned char numparts, unsigned char partnumber, bool force_16bit)
 {
   int length = -1;
   int delta = -1;
@@ -341,7 +445,7 @@ int PDU::encodePDU(const char *recipient, const char *message, unsigned short cs
     gsm7bit = isGSM7(&target);
     message += length; // bump to next
   }
-  if (!gsm7bit)
+  if (!gsm7bit || force_16bit)
     dcs = ALPHABET_16BIT;
   if (!setAddress(scabuffout, OCTETS, tempbuf)) { // set SCSA address
     return ADDRESS_FORMAT; // bail out now
@@ -365,6 +469,7 @@ int PDU::encodePDU(const char *recipient, const char *message, unsigned short cs
     udhsize = buildUDH(csms, numparts, partnumber);
   int pduLengthPlaceHolder = 0;
   int septetcount = 0;
+  int consumed = 0;
   switch (dcs)
   {
   case ALPHABET_8BIT:
@@ -383,11 +488,9 @@ int PDU::encodePDU(const char *recipient, const char *message, unsigned short cs
     }
 #endif
     if (udhsize != 0)
-    {
       memcpy(&tempbuf[smsOffset], udhbuffer, udhsize);
-      smsOffset += udhsize;
-    }
-    delta = utf8_to_packed7bit(savem, &tempbuf[smsOffset], &septetcount, udhsize == 0 ? 0 : 8, /*generalWorkBuffLength - smsOffset*/MAX_NUMBER_OCTETS);
+    smsOffset += udhsize;
+    delta = utf8_to_packed7bit(savem, &tempbuf[smsOffset], &septetcount, &consumed, udhsize == 0 ? 0 : 8, /*generalWorkBuffLength - smsOffset*/ /*MAX_NUMBER_OCTETS*/ MAX_SMS_LENGTH_7BIT);
     if (delta < 0) {
       overFlow = delta == WORK_BUFFER_TOO_SMALL;
 //      return delta;
@@ -395,8 +498,8 @@ int PDU::encodePDU(const char *recipient, const char *message, unsigned short cs
     else {
       tempbuf[pduLengthPlaceHolder] = septetcount;
       if (udhsize != 0)
-        tempbuf[pduLengthPlaceHolder] += 8; // 7 octets of udh = 8 septets
-      length = smsOffset + delta;             // allow for length byte
+        tempbuf[pduLengthPlaceHolder] += udhsize == 0 ? 0 : 8; // 7 octets of udh = 8 septets
+      length = smsOffset + delta + (udhsize == 0 ? 0 : 1);     // allow for length byte
     }
     break;
   case ALPHABET_16BIT:
@@ -405,11 +508,9 @@ int PDU::encodePDU(const char *recipient, const char *message, unsigned short cs
     tempbuf[smsOffset++] = 1; // placeholder for length in octets
     // insert UDH if any
     if (udhsize != 0)
-    {
       memcpy(&tempbuf[smsOffset], udhbuffer, udhsize);
-      smsOffset += udhsize;
-    }
-    delta = utf8_to_ucs2(savem, (char *)&tempbuf[smsOffset]);
+    smsOffset += udhsize;
+    delta = utf8_to_ucs2(savem, (char *)&tempbuf[smsOffset], &consumed, udhsize);
     if (delta > 0) {
       tempbuf[pduLengthPlaceHolder] = delta + udhsize; // correct message length
       length = smsOffset + delta;                        // allow for length byte
@@ -435,8 +536,8 @@ int PDU::encodePDU(const char *recipient, const char *message, unsigned short cs
     putHex(tempbuf[i], &generalWorkBuff[newoffset]);
     newoffset += 2;
   }
-  generalWorkBuff[length * 2] = 0x1a;    // add ctrl z
-  generalWorkBuff[(length * 2) + 1] = 0; // add end marker
+  //generalWorkBuff[length * 2] = 0x1a;    // add ctrl z
+  generalWorkBuff[(length * 2)] = 0; // add end marker
 
   return length - beginning;
 }
@@ -1043,7 +1144,7 @@ int PDU::decodeAddress(const char *pdu, char *output, eLengthType et)
     Translate a UTF-8 string to UCS2 octets
     Return number of octets, else -2 if too large to fit in a PDU
 */
-int PDU::utf8_to_ucs2(const char *utf8, char *ucs2)
+int PDU::utf8_to_ucs2(const char *utf8, char *ucs2, int *consumed, int udhsize)
 { // translate an utf8 zero terminated string
   int octets = 0, ucslength;
   unsigned short tempucs2[2]; // allow space for surrogate pair
@@ -1053,12 +1154,15 @@ int PDU::utf8_to_ucs2(const char *utf8, char *ucs2)
     //    int ucslength = utf8_to_ucs2_single(utf8,(short *)ucs2);
     ucslength = utf8_to_ucs2_single(utf8, tempucs2);
     // sanity check against overflowing the buffer
-    if (octets + ucslength > MAX_NUMBER_OCTETS)
+    if (octets + ucslength > MAX_NUMBER_OCTETS - udhsize)
       return UCS2_TOO_LONG;
     // ok to continue
-    memcpy(ucs2, tempucs2, ucslength);
+    if (ucs2 != nullptr) {
+      memcpy(ucs2, tempucs2, ucslength);
+      ucs2 += ucslength;   // bump output pointer
+    }
     utf8 += inputlen;    // bump input pointer
-    ucs2 += ucslength;   // bump output pointer
+    (*consumed) += inputlen;
     octets += ucslength; // bump total number of octets created
   }
   return octets;

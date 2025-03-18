@@ -3,6 +3,8 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <locale>
+#include <codecvt>
 
 namespace esphome {
 namespace a7670 {
@@ -518,6 +520,7 @@ void A7670Component::parse_cmd_(const std::string &message) {
       _send_sms_receive_csca_(message);
       break;
     case STATE_SENDING_SMS_2:
+      _prepare_sms_multipart_();
       // set pdu mode
       _set_msg_mode_(0, STATE_SENDING_SMS_3);
       break;
@@ -530,6 +533,21 @@ void A7670Component::parse_cmd_(const std::string &message) {
     case STATE_SENDING_SMS_5:
       if (message.compare(0, 6, "+CMGS:") == 0) {
         ESP_LOGD(TAG, "SMS Sent OK: %s", message.c_str());
+
+        if (outgoing_splits_.size() > 0) {
+          if (outgoing_partnum_ <= outgoing_splits_.size()) {
+            // continue sending message parts
+            state_ = STATE_SENDING_SMS_3;
+            expect_ack_ = true;
+            break; 
+          }
+          outgoing_csms_ = 0;
+          outgoing_partnum_ = 0;
+          outgoing_force_16bit_ = false;
+          outgoing_splits_.clear();
+        }
+
+        sms_sent_callback_.call(outgoing_message_, recipient_);
         state_ = STATE_CHECK_SMS;
         expect_ack_ = true;
       }
@@ -590,8 +608,57 @@ void A7670Component::_send_sms_receive_csca_(const std::string &message) {
   }
 }
 
+void A7670Component::_prepare_sms_multipart_() {
+  std::u32string msg_enc = utf8ToUcs4_(outgoing_message_);
+  std::size_t idx = 0;
+  int consumed;
+  bool msg16Bit = false;
+  const char* msg = outgoing_message_.c_str();
+  outgoing_splits_.clear();
+  while((consumed = pdu_.checkMultipart(recipient_.c_str(), msg, idx, &msg16Bit)) != -1) {
+    //ESP_LOGW(TAG, "Consumed %d", consumed);
+    std::size_t splitIdx = idx + consumed;
+    //std::string str = outgoing_message_.substr(idx, consumed);
+    //ESP_LOGW(TAG, "Split msg at %d: %s", splitIdx, str.c_str());
+
+    outgoing_splits_.emplace_back(splitIdx);
+    if (idx == splitIdx) {
+      ESP_LOGW(TAG, "Error splitting at %d", idx);
+      break;
+    }
+    idx = splitIdx;
+  };
+  if (outgoing_splits_.size() > 0) {
+    outgoing_csms_ = outgoing_csms_counter_++;
+    outgoing_partnum_ = 0;
+    outgoing_force_16bit_ = msg16Bit;
+  }
+}
+
 void A7670Component::_send_sms_send_header_() {
-  int encode_result = pdu_.encodePDU(recipient_.c_str(), outgoing_message_.c_str());
+  int encode_result;
+  if (outgoing_splits_.size() == 0) {
+    // just send the message
+    encode_result = pdu_.encodePDU(recipient_.c_str(), outgoing_message_.c_str());
+  } else {
+    std::size_t begin = outgoing_partnum_ == 0 ? 0 : *std::next(outgoing_splits_.begin(), outgoing_partnum_-1);
+    std::size_t end = outgoing_partnum_ >= outgoing_splits_.size() ? outgoing_message_.length() : *std::next(outgoing_splits_.begin(), outgoing_partnum_);
+    std::string part = outgoing_message_.substr(begin, end - begin);
+
+    outgoing_partnum_++;
+
+    ESP_LOGI(TAG, "Sending sms %d part %d of %d: %s", outgoing_csms_, outgoing_partnum_, outgoing_splits_.size() + 1, part.c_str());
+
+    encode_result = pdu_.encodePDU(
+      recipient_.c_str(), 
+      part.c_str(),
+      outgoing_csms_,
+      outgoing_splits_.size() + 1,
+      outgoing_partnum_,
+      outgoing_force_16bit_
+    );
+  }
+
   if (encode_result < 0) {
     ESP_LOGW(TAG, "Error encoding sms: %d", encode_result);
     state_ = STATE_IDLE;
@@ -746,6 +813,18 @@ std::string A7670Component::from_hex_(const std::string &data) {
     result.push_back(byte); 
   } 
   return result; 
+}
+
+std::string A7670Component::ucs4ToUtf8_(const std::u32string& in)
+{
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+    return conv.to_bytes(in);
+}
+
+std::u32string A7670Component::utf8ToUcs4_(const std::string& in)
+{
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+    return conv.from_bytes(in);
 }
 
 }  // namespace a7670

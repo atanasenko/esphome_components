@@ -1,6 +1,7 @@
 #pragma once
 
 #include <utility>
+#include <list>
 
 #include "esphome/core/defines.h"
 #include "esphome/core/component.h"
@@ -92,6 +93,12 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   void add_on_sms_received_callback(std::function<void(std::string, std::string)> callback) {
     this->sms_received_callback_.add(std::move(callback));
   }
+  void add_on_sms_sent_callback(std::function<void(std::string, std::string)> callback) {
+    this->sms_sent_callback_.add(std::move(callback));
+  }
+  void add_on_sms_send_failed_callback(std::function<void(std::string, std::string)> callback) {
+    this->sms_send_failed_callback_.add(std::move(callback));
+  }
   void add_on_incoming_call_callback(std::function<void(std::string)> callback) {
     this->incoming_call_callback_.add(std::move(callback));
   }
@@ -128,6 +135,7 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   void _set_msg_mode_(uint8_t mode, a7670::State state);
   void _send_sms_get_csca_();
   void _send_sms_receive_csca_(const std::string &message);
+  void _prepare_sms_multipart_();
   void _send_sms_send_header_();
   void _send_sms_send_body_(const std::string &message);
 
@@ -140,6 +148,8 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
 
   std::string to_hex_(const std::string &data);
   std::string from_hex_(const std::string &data);
+  std::string ucs4ToUtf8_(const std::u32string& in);
+  std::u32string utf8ToUcs4_(const std::string& in);
 
   void set_registered_(bool registered) {
     this->registered_ = registered;
@@ -189,6 +199,13 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   std::string whole_message_;
   std::string recipient_;
   std::string outgoing_message_;
+
+  std::list<std::size_t> outgoing_splits_;
+  int outgoing_csms_counter_{1};
+  int outgoing_csms_{0};
+  int outgoing_partnum_{0}; // current part of message
+  bool outgoing_force_16bit_{false};
+
   std::string ussd_;
   std::string sca_;
   std::string at_;
@@ -206,6 +223,8 @@ class A7670Component : public uart::UARTDevice, public PollingComponent {
   uint32_t last_call_check_{0};
 
   CallbackManager<void(std::string, std::string)> sms_received_callback_;
+  CallbackManager<void(std::string, std::string)> sms_sent_callback_;
+  CallbackManager<void(std::string, std::string)> sms_send_failed_callback_;
   CallbackManager<void(std::string)> incoming_call_callback_;
   CallbackManager<void()> call_connected_callback_;
   CallbackManager<void()> call_disconnected_callback_;
@@ -220,7 +239,24 @@ class A7670ReceivedMessageTrigger : public Trigger<std::string, std::string> {
   }
 };
 
-class A7670IncomingCallTrigger : public Trigger<std::string> {
+class A7670SentMessageTrigger : public Trigger<std::string, std::string> {
+  public:
+   explicit A7670SentMessageTrigger(A7670Component *parent) {
+     parent->add_on_sms_sent_callback(
+         [this](const std::string &message, const std::string &recipient) { this->trigger(message, recipient); });
+   }
+ };
+ 
+class A7670SendMessageFailedTrigger : public Trigger<std::string, std::string> {
+  public:
+   explicit A7670SendMessageFailedTrigger(A7670Component *parent) {
+     parent->add_on_sms_send_failed_callback(
+         [this](const std::string &error, const std::string &recipient) { this->trigger(error, recipient); });
+   }
+};
+ 
+
+ class A7670IncomingCallTrigger : public Trigger<std::string> {
  public:
   explicit A7670IncomingCallTrigger(A7670Component *parent) {
     parent->add_on_incoming_call_callback([this](const std::string &caller_id) { this->trigger(caller_id); });

@@ -88,6 +88,14 @@ class PDU
 public:
   PDU(int = UTF8_BUFFSIZE);
   ~PDU();
+
+  /**
+   * Checks if message (starting at messageIdx) should be split into multiple parts, returning index into the message after the last usable byte.
+   * Consequent calls with non-zer messageIdx will return indices of next parts.
+   * Returns -1 if whole message (or the last part) can be used in full.
+   */
+  int checkMultipart(const char *recipient, const char *message, int messageIdx, bool *msg16Bit);
+
 /**
  * @brief Encode a PDU block for sending to an GSM modem
  * 
@@ -95,7 +103,7 @@ public:
  * @param message The message in UTF-8 format
  * @return int The length of the message, need for the GSM command <b>AT+CSMG=nn</b>
  */
-  int encodePDU(const char *recipient,const char *message,unsigned short csms=0, unsigned char numparts=0, unsigned char partnumber=0);
+  int encodePDU(const char *recipient,const char *message,unsigned short csms=0, unsigned char numparts=0, unsigned char partnumber=0, bool force_16bit=false);
 
 /**
    * @brief Get the address of the PDU message created by <b>encodePDU</b>
@@ -174,7 +182,7 @@ public:
    * @param ucs2 Pointer to UCS2 array
    * @return int Return the number of octets, -1 if the message is greater than the maximum allowed
    */
-  int utf8_to_ucs2(const char *utf8, char *ucs2);  // translate an utf8 zero terminated string 
+  int utf8_to_ucs2(const char *utf8, char *ucs2, int *consumed, int udhsize);  // translate an utf8 zero terminated string 
 
   /**
    * @brief Examine an array of UCS2 to determine if this is a default GSM7 character
@@ -239,14 +247,15 @@ private:
 
   // helper methods
 
+  int doCheckMultipart(const char *recipient, const char *message, int messageIdx, int *consumed, bool *msg16Bit, bool forceMultipart);
   void stringToBCD(const char *number, char *pdu);
   void BCDtoString(char *number, const char *pdu,int length);
   void digitSwap(const char *number, char *pdu);
   
-  int utf8_to_packed7bit(const char *utf8, char *pdu, int *septets, int UDHsize, int availableSpace);
+  int utf8_to_packed7bit(const char *utf8, char *pdu, int *septets, int *consumed, int UDHsize, int availableSpace);
   int pduGsm7_to_unicode(const char *pdu, int pdulength, char *ascii,char firstchar);
 
-  int convert_utf8_to_gsm7bit(const char *ascii, char *a7bit, int udhsize, int availableSpace);
+  int convert_utf8_to_gsm7bit(const char *ascii, char *a7bit, int *consumed, int udhsize, int availableSpace);
   int convert_7bit_to_unicode(unsigned char *a7bit, int length, char *ascii);
 
   unsigned char gethex(const char *pc);

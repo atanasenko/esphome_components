@@ -20,6 +20,14 @@ A7670ReceivedMessageTrigger = a7670_ns.class_(
     "A7670ReceivedMessageTrigger",
     automation.Trigger.template(cg.std_string, cg.std_string),
 )
+A7670SentMessageTrigger = a7670_ns.class_(
+    "A7670SentMessageTrigger",
+    automation.Trigger.template(cg.std_string, cg.std_string),
+)
+A7670SendMessageFailedTrigger = a7670_ns.class_(
+    "A7670SendMessageFailedTrigger",
+    automation.Trigger.template(cg.std_string, cg.std_string),
+)
 A7670IncomingCallTrigger = a7670_ns.class_(
     "A7670IncomingCallTrigger",
     automation.Trigger.template(cg.std_string),
@@ -51,6 +59,8 @@ CONF_A7670_ID = "a7670_id"
 CONF_POWER_PIN = "power_pin"
 CONF_PIN_CODE = "pin_code"
 CONF_ON_SMS_RECEIVED = "on_sms_received"
+CONF_ON_SMS_SENT = "on_sms_sent"
+CONF_ON_SMS_SEND_FAILED = "on_sms_send_failed"
 CONF_ON_USSD_RECEIVED = "on_ussd_received"
 CONF_ON_INCOMING_CALL = "on_incoming_call"
 CONF_ON_CALL_CONNECTED = "on_call_connected"
@@ -69,6 +79,20 @@ CONFIG_SCHEMA = cv.All(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
                         A7670ReceivedMessageTrigger
+                    ),
+                }
+            ),
+            cv.Optional(CONF_ON_SMS_SENT): automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                        A7670SentMessageTrigger
+                    ),
+                }
+            ),
+            cv.Optional(CONF_ON_SMS_SEND_FAILED): automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                        A7670SendMessageFailedTrigger
                     ),
                 }
             ),
@@ -125,6 +149,16 @@ async def to_code(config):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(
             trigger, [(cg.std_string, "message"), (cg.std_string, "sender")], conf
+        )
+    for conf in config.get(CONF_ON_SMS_SENT, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(
+            trigger, [(cg.std_string, "message"), (cg.std_string, "recipient")], conf
+        )
+    for conf in config.get(CONF_ON_SMS_SEND_FAILED, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(
+            trigger, [(cg.std_string, "error"), (cg.std_string, "recipient")], conf
         )
     for conf in config.get(CONF_ON_INCOMING_CALL, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
