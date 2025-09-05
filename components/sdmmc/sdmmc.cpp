@@ -17,6 +17,10 @@ void SdMmcComponent::dump_config() {
   LOG_PIN("DATA3 Pin: ", this->data3_pin_);
 #endif
   ESP_LOGCONFIG(TAG, "Mounted: %d", this->is_mounted());
+#ifdef USE_SENSOR
+  LOG_SENSOR("  ", "Total space", this->total_space_sensor_);
+  LOG_SENSOR("  ", "Used space", this->used_space_sensor_);
+#endif
 }
 
 void SdMmcComponent::setup() {
@@ -27,13 +31,20 @@ void SdMmcComponent::setup() {
     get_pin_no_(this->data0_pin_), 
     get_pin_no_(this->data1_pin_), 
     get_pin_no_(this->data2_pin_), 
-    get_pin_no_(this->data3_pin_));
+    get_pin_no_(this->data3_pin_),
+    [this]() -> void {
+      this->update_sensors_();
+    });
 #else
   this->fs_ = impl_.mount(
     get_pin_no_(this->clk_pin_), 
     get_pin_no_(this->cmd_pin_), 
-    get_pin_no_(this->data0_pin_));
+    get_pin_no_(this->data0_pin_),
+    [this]() -> void {
+      this->update_sensors_();
+    });
 #endif
+  this->fs_->update_usage();
 }
 
 void SdMmcComponent::loop() {

@@ -6,12 +6,19 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/optional.h"
 #include "sdfs.h"
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
 
 namespace esphome {
 namespace sdmmc {
 
 class SdMmcComponent : public Component {
-  public:
+#ifdef USE_SENSOR
+  SUB_SENSOR(total_space)
+  SUB_SENSOR(used_space)
+#endif
+public:
     void dump_config() override;
     void setup() override;
     void loop() override;
@@ -48,6 +55,15 @@ class SdMmcComponent : public Component {
       if (((InternalGPIOPin *) pin)->is_inverted())
         return -1;
       return ((InternalGPIOPin *) pin)->get_pin();
+    }
+
+    void update_sensors_() {
+#ifdef USE_SENSOR
+  if (this->total_space_sensor_ != nullptr)
+    this->total_space_sensor_->publish_state(fs_->total_bytes());
+  if (this->used_space_sensor_ != nullptr)
+    this->used_space_sensor_->publish_state(fs_->used_bytes());
+#endif
     }
 };
 

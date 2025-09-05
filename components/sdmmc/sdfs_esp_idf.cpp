@@ -18,20 +18,16 @@ namespace sdmmc {
 static const char *const mount_point = "/sdcard";
 static const char *const TAG = "sdfs_esp_idf";
 
-#ifdef USE_SD_MODE_4BIT
   SdFs *SdImpl::mount(
     int clk_pin, 
     int cmd_pin, 
     int data0_pin,
+#ifdef USE_SD_MODE_4BIT
     int data1_pin, 
     int data2_pin, 
-    int data3_pin) {
-#else
-  SdFs *SdImpl::mount(
-    int clk_pin, 
-    int cmd_pin, 
-    int data0_pin) {
+    int data3_pin,
 #endif
+    std::function<void()> update_callback) {
 
   esp_err_t ret;
 
@@ -150,10 +146,10 @@ static const char *const TAG = "sdfs_esp_idf";
       }
     }
   }
-  return new SdFs(type);
+  return new SdFs(type, update_callback);
 }
 
-void SdFs::update_usage_() {
+void SdFs::update_usage() {
   FATFS *fsinfo;
   DWORD fre_clust;
   if (f_getfree("0:", &fre_clust, &fsinfo) != 0) {
@@ -163,6 +159,7 @@ void SdFs::update_usage_() {
     total_bytes_ = ((uint64_t)(fsinfo->csize)) * (fsinfo->n_fatent - 2) * (fsinfo->ssize);
     used_bytes_ = ((uint64_t)(fsinfo->csize)) * ((fsinfo->n_fatent - 2) - (fsinfo->free_clst)) * (fsinfo->ssize);
   }
+  update_callback_();
 }
 
 std::string SdFs::full_path_(const std::string &path) {
@@ -234,7 +231,7 @@ bool SdFs::create_dir(const std::string &path) {
   }
   const std::string fpath = full_path_(path);
   auto rc = mkdir(fpath.c_str(), ACCESSPERMS);
-  update_usage_();
+  update_usage();
   return rc == 0;
 }
 
@@ -244,7 +241,7 @@ bool SdFs::remove_dir(const std::string &path) {
   }
   const std::string fpath = full_path_(path);
   auto rc = rmdir(fpath.c_str());
-  update_usage_();
+  update_usage();
   return rc == 0;
 }
 
@@ -265,7 +262,7 @@ bool SdFs::delete_file(const std::string &path) {
   }
   const std::string fpath = full_path_(path);
   auto rc = unlink(fpath.c_str());
-  update_usage_();
+  update_usage();
   return rc == 0;
 }
 
@@ -283,7 +280,7 @@ bool SdFs::write_file(const std::string &path, const std::string &data) {
   auto rc = fwrite(data.c_str(), 1, data.length(), f);
   fclose(f);
 
-  update_usage_();
+  update_usage();
   return rc == data.length();
 }
 
@@ -300,7 +297,7 @@ bool SdFs::append_file(const std::string &path, const std::string &data) {
   auto rc = fwrite(data.c_str(), 1, data.length(), f);
   fclose(f);
 
-  update_usage_();
+  update_usage();
   return rc == data.length();
 }
 

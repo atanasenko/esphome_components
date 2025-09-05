@@ -25,21 +25,19 @@ class SdImpl {
     SdFs *mount(
       int clk_pin, 
       int cmd_pin, 
-#ifdef USE_SD_MODE_4BIT
       int data0_pin, 
+#ifdef USE_SD_MODE_4BIT
       int data1_pin, 
       int data2_pin, 
-      int data3_pin);
-#else
-      int data0_pin);
+      int data3_pin,
 #endif
+      std::function<void()> update_callback);
 
 };
 
 class SdFs {
   public:
-    SdFs(CardType card_type) : card_type_(card_type) {
-      update_usage_();
+    SdFs(CardType card_type, std::function<void()> update_callback) : card_type_(card_type), update_callback_(update_callback) {
     }
     CardType card_type() { return card_type_; };
     uint64_t total_bytes() { return total_bytes_; }
@@ -66,14 +64,15 @@ class SdFs {
       }
       return content;
     }
+    void update_usage();
 
   protected:
     CardType card_type_;
+    std::function<void()> update_callback_{nullptr};
     uint64_t total_bytes_{0};
     uint64_t used_bytes_{0};
 
     std::string full_path_(const std::string &path);
-    void update_usage_();
 
 };
 
