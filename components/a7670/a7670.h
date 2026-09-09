@@ -289,7 +289,7 @@ template<typename... Ts> class A7670SendSmsAction : public Action<Ts...> {
   TEMPLATABLE_VALUE(std::string, recipient)
   TEMPLATABLE_VALUE(std::string, message)
 
-  void play(Ts... x) {
+  void play(const Ts &...x) override {
     auto recipient = this->recipient_.value(x...);
     auto message = this->message_.value(x...);
     this->parent_->send_sms(recipient, message);
@@ -304,7 +304,7 @@ template<typename... Ts> class A7670SendUssdAction : public Action<Ts...> {
   A7670SendUssdAction(A7670Component *parent) : parent_(parent) {}
   TEMPLATABLE_VALUE(std::string, ussd)
 
-  void play(Ts... x) {
+  void play(const Ts &...x) override {
     auto ussd_code = this->ussd_.value(x...);
     this->parent_->send_ussd(ussd_code);
   }
@@ -318,7 +318,7 @@ template<typename... Ts> class A7670SendAtAction : public Action<Ts...> {
   A7670SendAtAction(A7670Component *parent) : parent_(parent) {}
   TEMPLATABLE_VALUE(std::string, command)
 
-  void play(Ts... x) {
+  void play(const Ts &...x) override {
     auto command = this->command_.value(x...);
     this->parent_->send_at(command);
   }
@@ -332,7 +332,7 @@ template<typename... Ts> class A7670DialAction : public Action<Ts...> {
   A7670DialAction(A7670Component *parent) : parent_(parent) {}
   TEMPLATABLE_VALUE(std::string, recipient)
 
-  void play(Ts... x) {
+  void play(const Ts &...x) override {
     auto recipient = this->recipient_.value(x...);
     this->parent_->dial(recipient);
   }
@@ -344,7 +344,7 @@ template<typename... Ts> class A7670ConnectAction : public Action<Ts...> {
  public:
   A7670ConnectAction(A7670Component *parent) : parent_(parent) {}
 
-  void play(Ts... x) { this->parent_->connect(); }
+  void play(const Ts &...x) override { this->parent_->connect(); }
 
  protected:
   A7670Component *parent_;
@@ -354,7 +354,7 @@ template<typename... Ts> class A7670DisconnectAction : public Action<Ts...> {
  public:
   A7670DisconnectAction(A7670Component *parent) : parent_(parent) {}
 
-  void play(Ts... x) { this->parent_->disconnect(); }
+  void play(const Ts &...x) override { this->parent_->disconnect(); }
 
  protected:
   A7670Component *parent_;
@@ -364,7 +364,7 @@ template<typename... Ts> class A7670DebugOnAction : public Action<Ts...> {
  public:
   A7670DebugOnAction(A7670Component *parent) : parent_(parent) {}
 
-  void play(Ts... x) { this->parent_->set_debug(true); }
+  void play(const Ts &...x) override { this->parent_->set_debug(true); }
 
  protected:
   A7670Component *parent_;
@@ -374,7 +374,7 @@ template<typename... Ts> class A7670DebugOffAction : public Action<Ts...> {
  public:
   A7670DebugOffAction(A7670Component *parent) : parent_(parent) {}
 
-  void play(Ts... x) { this->parent_->set_debug(false); }
+  void play(const Ts &...x) override { this->parent_->set_debug(false); }
 
  protected:
   A7670Component *parent_;

@@ -8,6 +8,7 @@
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
 #include <driver/sdmmc_host.h>
+#include <ff.h>
 
 #define SD_OCR_S18_RA                   (1<<24)
 #define SD_OCR_SDHC_CAP                 (1<<30)  
@@ -184,21 +185,26 @@ bool SdFs::is_directory(const std::string &path) {
 }
 
 bool SdFs::list_dir(const std::string &path, std::function<bool(const std::string&)> callback) {
-  const std::string fpath = full_path_(path);
+  const std::string fpath = "0:" + path;
 
-  struct dirent *dp;
-  DIR *dir = opendir(fpath.c_str());
-  if (dir == NULL) {
-    ESP_LOGE(TAG, "Failed to open dir %s", fpath.c_str());
+  FF_DIR dir;
+  FRESULT result = f_opendir(&dir, fpath.c_str());
+  if (result != FR_OK) {
+    ESP_LOGE(TAG, "Failed to open dir %s (%d)", fpath.c_str(), result);
     return false;
   }
-  while ((dp = readdir (dir)) != NULL) {
-    if(!callback(dp->d_name)) {
+  FILINFO info;
+  while (true) {
+    result = f_readdir(&dir, &info);
+    if (result != FR_OK || info.fname[0] == '\0') {
+      break;
+    }
+    if (!callback(info.fname)) {
       break;
     }
   }
-  closedir (dir);
-  return true;
+  f_closedir(&dir);
+  return result == FR_OK;
 }
 
 bool SdFs::read_file(const std::string &path, std::function<bool(const char*, const size_t)> callback) {

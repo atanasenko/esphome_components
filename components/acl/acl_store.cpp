@@ -124,6 +124,9 @@ namespace acl {
     }
     optional<std::string> result = {};
     sdfs_->list_dir("/" + path_ + "/logs", [&result](const std::string &name) -> bool {
+      if (name == "." || name == ".." || name.size() < 5 || name.compare(name.size() - 4, 4, ".log") != 0) {
+        return true;
+      }
       if (!result.has_value() || result.value().compare(name) < 0) {
         result = name;
       }

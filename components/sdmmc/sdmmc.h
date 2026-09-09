@@ -71,7 +71,7 @@ template<typename... Ts> class SdMmcTestAction : public Action<Ts...> {
  public:
   SdMmcTestAction(SdMmcComponent *parent) : parent_(parent) {}
 
-  void play(Ts... x) { this->parent_->do_test(); }
+  void play(const Ts &...x) override { this->parent_->do_test(); }
 
  protected:
   SdMmcComponent *parent_;

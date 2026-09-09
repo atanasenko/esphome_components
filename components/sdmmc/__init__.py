@@ -40,7 +40,7 @@ CONFIG_SCHEMA = cv.Schema(
 ).extend(cv.COMPONENT_SCHEMA)
 
 async def to_code(config):
-    if CORE.is_esp32 and CORE.using_esp_idf:
+    if CORE.is_esp32:
         add_idf_sdkconfig_option("CONFIG_FATFS_LFN_HEAP", True)
 
     var = cg.new_Pvariable(config[CONF_ID])
